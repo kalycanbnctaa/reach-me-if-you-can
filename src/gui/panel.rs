@@ -18,6 +18,7 @@ pub struct PanelState {
     pub max_angles_deg: [f32; MAX_JOINT_COUNT],
     pub show_jacobian: bool,
     pub show_target: bool,
+    pub show_forces: bool,
     pub solver_index: usize,
     pub dropdown_open: bool,
     pub animation_speed: usize,
@@ -42,6 +43,7 @@ impl PanelState {
             max_angles_deg: [MAX_JOINT_ANGLE_DEG; MAX_JOINT_COUNT],
             show_jacobian: false,
             show_target: true,
+            show_forces: false,
             solver_index: 1,
             dropdown_open: false,
             animation_speed: 1,
@@ -63,6 +65,7 @@ pub struct PanelEvents {
     pub joint_limit_changed: Option<usize>,
     pub solver_changed: bool,
     pub reset_requested: bool,
+    pub random_requested: bool,
 }
 
 pub fn draw(state: &mut PanelState) -> PanelEvents {
@@ -195,6 +198,9 @@ pub fn draw(state: &mut PanelState) -> PanelEvents {
     y += 30.0;
 
     state.show_jacobian = widgets::checkbox(inner_x, y, "Show Jacobian", state.show_jacobian);
+    y += 30.0;
+
+    state.show_forces = widgets::checkbox(inner_x, y, "Show Forces", state.show_forces);
     y += 40.0;
 
     draw_text("IK Solver", inner_x, y, 20.0, colors::PANEL_TITLE);
@@ -243,6 +249,12 @@ pub fn draw(state: &mut PanelState) -> PanelEvents {
 
     if widgets::button(inner_x, y, inner_width, 34.0, "Reset Arm (R)") {
         events.reset_requested = true;
+    }
+
+    y += 40.0;
+
+    if widgets::button(inner_x, y, inner_width, 34.0, "Random Pose") {
+        events.random_requested = true;
     }
 
     events

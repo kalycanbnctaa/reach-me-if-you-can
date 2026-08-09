@@ -45,12 +45,18 @@ pub fn step(
     robot.state.colliding =
         intersection::arm_intersects_any(&robot.pose.joint_positions, obstacles);
 
+    robot.state.segment_collision = intersection::arm_segments_intersecting(
+        &robot.pose.joint_positions,
+        obstacles,
+    );
+
     if error <= config.position_tolerance {
         println!(
             "[SOLVER {}] converged in {} iterations, error={:.4}",
             solver_name, robot.state.iteration, error
         );
         robot.state.mark_converged(error, robot.state.iteration);
+        robot.state.push_error(error);
         return;
     }
 
@@ -62,6 +68,7 @@ pub fn step(
         );
         robot.state.mark_stalled(error, robot.state.iteration);
         robot.state.set_constraint_blocked(blocked);
+        robot.state.push_error(error);
         return;
     }
 
@@ -87,6 +94,7 @@ pub fn step(
             solver_name, robot.state.iteration, error
         );
         robot.state.mark_singular(error, robot.state.iteration);
+        robot.state.push_error(error);
         return;
     }
 
@@ -116,11 +124,13 @@ pub fn step(
             solver_name, robot.state.iteration, error
         );
         robot.state.mark_singular(error, robot.state.iteration);
+        robot.state.push_error(error);
         return;
     }
 
     robot.state.iteration += 1;
     robot.state.current_error = Vector2::distance(robot.end_effector(), target);
+    robot.state.push_error(robot.state.current_error);
 }
 
 fn is_blocked_by_limits(robot: &RobotArm) -> bool {

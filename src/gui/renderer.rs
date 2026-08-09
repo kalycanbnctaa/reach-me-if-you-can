@@ -1,7 +1,10 @@
 use macroquad::prelude::*;
 
 use crate::{
-    collision::obstacle::{Obstacle, ObstacleShape},
+    collision::{
+        obstacle::{Obstacle, ObstacleShape},
+        potential_field::{self, PotentialFieldConfig},
+    },
     config,
     kinematics::jacobian::Jacobian,
     math::vector2::Vector2,
@@ -22,11 +25,21 @@ impl Renderer {
         Self
     }
 
-    pub fn draw(&self, robot: &RobotArm) {
+    pub fn draw(
+        &self,
+        robot: &RobotArm,
+        obstacles: &[Obstacle],
+        show_forces: bool,
+        field_config: &PotentialFieldConfig,
+    ) {
         self.draw_grid();
         self.draw_robot(robot);
         self.draw_joint_limits(robot);
         self.draw_base(robot.base_position);
+
+        if show_forces {
+            self.draw_force_arrows(robot, obstacles, field_config);
+        }
     }
 
     pub fn draw_target(&self, target: Vector2, reachable: bool) {
@@ -100,6 +113,52 @@ impl Renderer {
         }
     }
 
+    pub fn draw_error_graph(&self, robot: &RobotArm, x: f32, y: f32, width: f32, height: f32) {
+        let history = &robot.state.error_history;
+
+        if history.len() < 2 {
+            return;
+        }
+
+        let max_error = history
+            .iter()
+            .fold(1.0_f32, |acc, &val| acc.max(val.max(0.001_f32)));
+
+        draw_rectangle(x - 10.0, y - 28.0, width + 20.0, height + 40.0, Color::new(0.0, 0.0, 0.0, 0.55));
+        draw_text("Error vs Iteration", x, y, 20.0, YELLOW);
+
+        let graph_y = y + 10.0;
+        let graph_height = height - 20.0;
+
+        for i in 0..history.len() - 1 {
+            let t1 = i as f32 / 100.0;
+            let t2 = (i + 1) as f32 / 100.0;
+
+            let error1 = history[i];
+            let error2 = history[i + 1];
+
+            let px1 = x + t1 * width;
+            let py1 = graph_y + graph_height - (error1 / max_error) * graph_height;
+            let px2 = x + t2 * width;
+            let py2 = graph_y + graph_height - (error2 / max_error) * graph_height;
+
+            let color = if error2 < error1 { GREEN } else { RED };
+
+            draw_line(px1, py1, px2, py2, 2.0, color);
+        }
+
+        if let Some(&last) = history.last() {
+            let t = (history.len() - 1) as f32 / 100.0;
+            let px = x + t * width;
+            let py = graph_y + graph_height - (last / max_error) * graph_height;
+
+            draw_circle(px, py, 3.0, WHITE);
+        }
+
+        draw_text(&format!("max: {:.2}", max_error), x + width - 80.0, y + 22.0, 14.0, LIGHTGRAY);
+        draw_text("iter →", x + width - 60.0, graph_y + graph_height + 18.0, 14.0, LIGHTGRAY);
+    }
+
     fn draw_robot(&self, robot: &RobotArm) {
         self.draw_segments(robot);
         self.draw_joints(robot);
@@ -115,14 +174,31 @@ impl Renderer {
                 continue;
             };
 
+            let colliding = robot
+                .state
+                .segment_collision
+                .get(index)
+                .copied()
+                .unwrap_or(false);
+
+            let color = if colliding {
+                Color::new(1.0, 0.2, 0.2, 1.0)
+            } else {
+                config::SEGMENT_COLOR
+            };
+
             draw_line(
                 start.x,
                 start.y,
                 end.x,
                 end.y,
                 config::DEFAULT_SEGMENT_THICKNESS,
-                config::SEGMENT_COLOR,
+                color,
             );
+
+            if colliding {
+                draw_circle_lines((start.x + end.x) / 2.0, (start.y + end.y) / 2.0, 16.0, 3.0, RED);
+            }
 
             self.draw_segment_direction(start, end);
         }
@@ -253,6 +329,41 @@ impl Renderer {
         while y <= height {
             draw_line(0.0, y, width, y, 1.0, config::GRID_COLOR);
             y += config::GRID_SIZE;
+        }
+    }
+
+    fn draw_force_arrows(
+        &self,
+        robot: &RobotArm,
+        obstacles: &[Obstacle],
+        field_config: &PotentialFieldConfig,
+    ) {
+        let vectors = potential_field::compute_force_vectors(robot, obstacles, field_config);
+
+        for (position, force) in vectors {
+            let magnitude = force.length();
+            let max_arrow_length = 30.0;
+            let length = (magnitude * 0.04).min(max_arrow_length);
+
+            if length < 2.0 {
+                continue;
+            }
+
+            let direction = force.normalized();
+            let end = position + direction * length;
+
+            draw_line(position.x, position.y, end.x, end.y, 2.5, ORANGE);
+
+            let arrow_head_size = 8.0;
+            let angle = direction.angle();
+
+            let left = end + Vector2::from_angle(angle + 2.5) * arrow_head_size;
+            let right = end + Vector2::from_angle(angle - 2.5) * arrow_head_size;
+
+            draw_line(end.x, end.y, left.x, left.y, 2.0, ORANGE);
+            draw_line(end.x, end.y, right.x, right.y, 2.0, ORANGE);
+
+            draw_circle(position.x, position.y, 2.0, YELLOW);
         }
     }
 }

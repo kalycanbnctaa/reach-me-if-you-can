@@ -17,3 +17,19 @@ pub fn arm_intersects_any(joint_positions: &[Vector2], obstacles: &[Obstacle]) -
             .any(|obstacle| segment_intersects_obstacle(pair[0], pair[1], obstacle))
     })
 }
+
+pub fn arm_segments_intersecting(
+    joint_positions: &[Vector2],
+    obstacles: &[Obstacle],
+) -> Vec<bool> {
+    let mut result = Vec::with_capacity(joint_positions.len().saturating_sub(1));
+
+    for pair in joint_positions.windows(2) {
+        let collides = obstacles
+            .iter()
+            .any(|obstacle| segment_intersects_obstacle(pair[0], pair[1], obstacle));
+        result.push(collides);
+    }
+
+    result
+}

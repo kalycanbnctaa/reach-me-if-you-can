@@ -87,7 +87,12 @@ impl App {
 
             clear_background(config::BACKGROUND_COLOR);
 
-            self.renderer.draw(&self.robot);
+            self.renderer.draw(
+                &self.robot,
+                &self.obstacles,
+                self.panel_state.show_forces,
+                &self.field_config,
+            );
             self.renderer.draw_obstacles(&self.obstacles, self.robot.state.colliding);
 
             if self.panel_state.show_target {
@@ -99,7 +104,16 @@ impl App {
                 self.renderer.draw_jacobian_overlay(&self.robot.jacobian());
             }
 
+            self.renderer.draw_error_graph(
+                &self.robot,
+                screen_width() - 290.0,
+                screen_height() - 180.0,
+                260.0,
+                120.0,
+            );
+
             self.draw_overlay();
+            self.draw_joint_tooltip();
 
             let events = panel::draw(&mut self.panel_state);
             self.apply_panel_events(events);
@@ -143,6 +157,22 @@ impl App {
         if events.reset_requested {
             self.simulation.reset(&mut self.robot);
         }
+
+        if events.random_requested {
+            self.randomize_pose();
+        }
+    }
+
+    fn randomize_pose(&mut self) {
+        for index in 0..self.robot.actuated_joint_count() {
+            let limit = self.robot.joint_limit(index).unwrap_or_default();
+            let min = limit.min_angle;
+            let max = limit.max_angle;
+            let angle = min + ::rand::random::<f32>() * (max - min);
+            self.robot.set_joint_angle(index, angle);
+        }
+
+        self.robot.state.clear_solver_status();
     }
 
     fn reapply_joint_limits(&mut self) {
@@ -176,6 +206,16 @@ impl App {
             self.print_jacobian();
         }
 
+        if is_mouse_button_down(MouseButton::Left) && !gui_input::is_pointer_over_panel() {
+            let (mouse_x, mouse_y) = mouse_position();
+            let point = Vector2::new(mouse_x, mouse_y);
+
+            if !is_key_down(KeyCode::O) && !is_key_down(KeyCode::P) {
+                self.robot.state.clear_solver_status();
+                self.simulation.set_target(point);
+            }
+        }
+
         if is_mouse_button_pressed(MouseButton::Left) && !gui_input::is_pointer_over_panel() {
             let (mouse_x, mouse_y) = mouse_position();
             let point = Vector2::new(mouse_x, mouse_y);
@@ -184,9 +224,6 @@ impl App {
                 self.try_add_circle_obstacle(point);
             } else if is_key_down(KeyCode::P) {
                 self.try_add_aabb_obstacle(point);
-            } else {
-                self.robot.state.clear_solver_status();
-                self.simulation.set_target(point);
             }
         }
 
@@ -272,6 +309,32 @@ impl App {
         println!("Jacobian");
         println!("{}", jacobian.matrix);
         println!();
+    }
+
+    fn draw_joint_tooltip(&self) {
+        let (mouse_x, mouse_y) = mouse_position();
+        let mouse_point = Vector2::new(mouse_x, mouse_y);
+
+        for (index, position) in self.robot.pose.joint_positions.iter().enumerate() {
+            if index == 0 {
+                continue;
+            }
+
+            let distance = Vector2::distance(mouse_point, *position);
+            if distance < 20.0 {
+                let angle = self.robot.state.joint_angles.get(index - 1).copied().unwrap_or(0.0);
+                let angle_deg = angle.to_degrees();
+
+                let text = format!("Joint {}: {:.1}°", index, angle_deg);
+                let text_x = mouse_x + 16.0;
+                let text_y = mouse_y - 10.0;
+
+                let text_width = text.len() as f32 * 9.0;
+                draw_rectangle(text_x - 6.0, text_y - 16.0, text_width + 12.0, 24.0, Color::new(0.0, 0.0, 0.0, 0.75));
+                draw_text(&text, text_x, text_y + 2.0, 18.0, WHITE);
+                break;
+            }
+        }
     }
 
     fn draw_overlay(&self) {
@@ -540,7 +603,7 @@ impl App {
 
         y += 28.0;
 
-        draw_text("Click : Set Target", indent_x, y, 20.0, LIGHTGRAY);
+        draw_text("Click / Drag : Set Target", indent_x, y, 20.0, LIGHTGRAY);
 
         y += 24.0;
 
@@ -583,5 +646,18 @@ impl App {
         y += 24.0;
 
         draw_text("J : Print Jacobian", indent_x, y, 20.0, LIGHTGRAY);
+
+        y += 30.0;
+
+        draw_text("Legend", base_x, y, 24.0, YELLOW);
+        y += 28.0;
+
+        draw_text("● Converged", indent_x, y, 18.0, GREEN);
+        y += 22.0;
+        draw_text("● Solving", indent_x, y, 18.0, YELLOW);
+        y += 22.0;
+        draw_text("● Unreachable", indent_x, y, 18.0, RED);
+        y += 22.0;
+        draw_text("● Singular / Stalled", indent_x, y, 18.0, ORANGE);
     }
 }

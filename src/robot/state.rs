@@ -12,6 +12,8 @@ pub struct RobotState {
     pub stalled: bool,
     pub constraint_blocked: bool,
     pub colliding: bool,
+    pub segment_collision: Vec<bool>,
+    pub error_history: Vec<f32>,
 }
 
 impl RobotState {
@@ -29,12 +31,16 @@ impl RobotState {
             stalled: false,
             constraint_blocked: false,
             colliding: false,
+            segment_collision: vec![false; joint_count],
+            error_history: Vec::with_capacity(100),
         }
     }
 
     pub fn reset(&mut self) {
         self.joint_angles.fill(0.0);
         self.clear_solver_status();
+        self.segment_collision.fill(false);
+        self.error_history.clear();
     }
 
     pub fn joint_count(&self) -> usize {
@@ -81,6 +87,7 @@ impl RobotState {
         self.stalled = false;
         self.constraint_blocked = false;
         self.colliding = false;
+        self.segment_collision.fill(false);
     }
 
     pub fn mark_converged(&mut self, error: f32, iteration: usize) {
@@ -117,6 +124,13 @@ impl RobotState {
 
     pub fn set_constraint_blocked(&mut self, blocked: bool) {
         self.constraint_blocked = blocked;
+    }
+
+    pub fn push_error(&mut self, error: f32) {
+        if self.error_history.len() >= 100 {
+            self.error_history.remove(0);
+        }
+        self.error_history.push(error);
     }
 
     pub fn is_valid(&self) -> bool {
