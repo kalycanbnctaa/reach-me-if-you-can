@@ -305,3 +305,9 @@ Sesuai ketentuan spesifikasi tugas:
 Dependensi eksternal:
 - [`macroquad`](https://crates.io/crates/macroquad): framework rendering dan window management
 - [`nalgebra`](https://crates.io/crates/nalgebra): struktur data matriks generik (`DMatrix`) sebagai container, bukan solver
+
+## Video Presentasi
+
+Video demo dan penjelasan implementasi (Forward Kinematics, Jacobian, metode Inverse Kinematics, dan penanganan singularity) dapat diakses melalui link berikut:
+
+[https://drive.google.com/file/d/1QLkJEce6XV2HQ5qlVnKYeSGH9ZNmti51/view?usp=sharing](https://drive.google.com/file/d/1QLkJEce6XV2HQ5qlVnKYeSGH9ZNmti51/view?usp=sharing)
