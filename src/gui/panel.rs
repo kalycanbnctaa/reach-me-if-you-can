@@ -22,6 +22,8 @@ pub struct PanelState {
     pub solver_index: usize,
     pub dropdown_open: bool,
     pub animation_speed: usize,
+    pub scroll_y: f32,
+    pub content_height: f32,
     slider_dragging: [bool; MAX_JOINT_COUNT],
     min_angle_dragging: [bool; MAX_JOINT_COUNT],
     max_angle_dragging: [bool; MAX_JOINT_COUNT],
@@ -47,6 +49,8 @@ impl PanelState {
             solver_index: 1,
             dropdown_open: false,
             animation_speed: 1,
+            scroll_y: 0.0,
+            content_height: 0.0,
             slider_dragging: [false; MAX_JOINT_COUNT],
             min_angle_dragging: [false; MAX_JOINT_COUNT],
             max_angle_dragging: [false; MAX_JOINT_COUNT],
@@ -77,7 +81,7 @@ pub fn draw(state: &mut PanelState) -> PanelEvents {
 
     let inner_x = 20.0;
     let inner_width = PANEL_WIDTH - 40.0;
-    let mut y = 24.0;
+    let mut y = 24.0 - state.scroll_y;
 
     draw_text("Robot Configuration", inner_x, y, 22.0, colors::PANEL_TITLE);
     y += 34.0;
@@ -256,6 +260,8 @@ pub fn draw(state: &mut PanelState) -> PanelEvents {
     if widgets::button(inner_x, y, inner_width, 34.0, "Random Pose") {
         events.random_requested = true;
     }
+
+    state.content_height = y + state.scroll_y + 40.0;
 
     events
 }

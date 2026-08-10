@@ -23,6 +23,7 @@ Lengan robot digerakkan menuju titik target yang diklik pengguna melalui simulas
   - [Jacobian](#jacobian)
   - [Inverse Kinematics Solver](#inverse-kinematics-solver)
   - [Deteksi dan Penanganan Singularity](#deteksi--penanganan-singularity)
+  - [Reachability dan Batas Sudut Sendi](#reachability-dan-batas-sudut-sendi)
   - [Obstacle Avoidance](#obstacle-avoidance)
 - [Pengujian](#pengujian)
 - [Batasan yang Dipatuhi](#batasan-yang-dipatuhi)
@@ -41,6 +42,8 @@ Lengan robot digerakkan menuju titik target yang diklik pengguna melalui simulas
 | IK numerik *from scratch* (Jacobian Transpose dan Pseudo-Inverse) | Terpenuhi | `src/kinematics/transpose.rs`, `src/kinematics/pseudoinverse.rs`, `src/linear_solver/` |
 | Deteksi singularity / near-singularity | Terpenuhi | `src/kinematics/singularity.rs` |
 | Penanganan singularity tanpa NaN/divergensi | Terpenuhi | `src/kinematics/pseudoinverse.rs`, `src/kinematics/solver.rs` |
+| Deteksi unreachable (jarak & batas sudut sendi) | Terpenuhi | `robot/arm.rs` (`is_within_reach`), `kinematics/solver.rs` (`is_blocked_by_limits`) |
+| Constraint sudut per sendi (aktif/nonaktif, rentang kustom) | Terpenuhi | `robot/limits.rs`, `gui/panel.rs` |
 | Input target via klik mouse | Terpenuhi | `src/app.rs` (`handle_input`) |
 | Input jumlah sendi $N$ dan panjang tiap segmen | Terpenuhi | `src/gui/panel.rs` |
 | Visualisasi GUI step-by-step | Terpenuhi | `src/gui/renderer.rs`, `src/simulation/mod.rs` |
@@ -55,7 +58,6 @@ Lengan robot digerakkan menuju titik target yang diklik pengguna melalui simulas
 ### Fitur Tambahan
 
 - **4 mode solver IK** yang bisa dibandingkan langsung dari dropdown: Jacobian Transpose, Pseudo-Inverse (dengan auto-damping saat mendekati singular), Pseudo-Inverse Undamped (untuk demonstrasi kegagalan tanpa damping), dan Damped Least Squares.
-- **Joint angle limit** per sendi (opsional, dapat diaktifkan per sendi dengan rentang sudut kustom).
 - **Overlay Jacobian real-time** yang menampilkan matriks $2 \times N$ secara langsung di layar.
 - **Obstacle interaktif**: tambah obstacle lingkaran/kotak dengan klik, hapus dengan klik kanan.
 - **Kontrol manual per sendi** via keyboard, independen dari solver IK.
@@ -238,6 +240,33 @@ Penanganan dilakukan di dua lapis:
 1. **Level solver**: `JacobianPseudoInverse` otomatis menambah faktor redaman ($\lambda$) saat status near-singular/singular terdeteksi sehingga sistem persamaan linear tidak pernah dibalik dalam kondisi *ill-conditioned* tanpa proteksi.
 2. **Level orkestrasi**: `solver::step()` memeriksa setiap hasil $\Delta\theta$ dengan `is_finite()` sebelum diterapkan. Jika NaN terdeteksi, status ditandai `SINGULAR` dan iterasi dihentikan alih-alih mencemari state lengan dengan nilai tak-valid.
 
+### Reachability dan Batas Sudut Sendi
+
+Sesuai definisi pada spesifikasi tugas, sebuah target dianggap **tidak dapat dicapai** (*unreachable*) dalam dua kondisi berbeda dan program menangani keduanya secara terpisah karena sifatnya berbeda: yang pertama dapat diketahui *sebelum* solver berjalan, sedangkan yang kedua baru diketahui *setelah* solver mencoba.
+
+**1. Unreachable secara jarak**
+
+Dicek langsung sebelum iterasi solver dimulai, membandingkan jarak target ke base terhadap jangkauan minimum dan maksimum lengan:
+
+$$L_{\min} \le \lVert \text{target} - \text{base} \rVert \le L_{\max}$$
+
+dengan $L_{\max} = \sum L_i$ (total panjang segmen) dan $L_{\min} = \max(0,\ 2L_{\text{terpanjang}} - L_{\max})$, batas bawah ini muncul karena segmen terpanjang tidak bisa "dilipat penuh" oleh segmen-segmen lain jika sisanya lebih pendek darinya. Implementasi ada di `RobotArm::is_within_reach()` (`robot/arm.rs`). Jika target berada di luar rentang ini, status langsung ditandai `UNREACHABLE` tanpa membuang iterasi solver sama sekali.
+
+**2. Unreachable karena batas sudut sendi**
+
+Target bisa saja secara jarak berada dalam jangkauan, tapi tidak dapat dicapai karena `JointLimit` (`robot/limits.rs`) yang aktif pada satu atau lebih sendi membatasi konfigurasi yang bisa dicapai lengan. Berbeda dari kasus pertama, kondisi ini **tidak bisa dideteksi lebih dulu secara geometris sederhana**, solver perlu benar-benar mencoba mendekati target dan gagal karena mentok di batas sudut. Program mendeteksi ini di `solver::step()` melalui dua sinyal yang muncul bersamaan:
+
+- Solver mencapai `max_iterations` tanpa konvergen (`error > position_tolerance`).
+- Minimal satu sendi berada tepat di batas `min_angle`/`max_angle`-nya (`is_blocked_by_limits()`), menandakan solver "mentok" karena constraint, bukan karena kekurangan iterasi biasa.
+
+Kombinasi ini ditandai dengan status `STALLED (LIMIT)`, dibedakan secara visual dari `STALLED` biasa (yang menandakan solver butuh lebih banyak iterasi tanpa sebab constraint) agar pengguna dapat langsung mengenali penyebab kegagalan konvergensi.
+
+| Kondisi | Deteksi | Status |
+|---|---|---|
+| Jarak di luar $[L_{\min}, L_{\max}]$ | Sebelum solver berjalan | `UNREACHABLE` |
+| Jarak valid, tapi batas sudut menghalangi | Setelah `max_iterations`, sendi mentok di limit | `STALLED (LIMIT)` |
+| Jarak valid, sudut tidak terbatasi, tapi belum konvergen | Setelah `max_iterations` | `STALLED` |
+
 ### Obstacle Avoidance
 
 Menggunakan pendekatan **artificial potential field**: setiap titik sampel di sepanjang segmen lengan (`collision::potential_field::compute_delta`) yang berada dalam radius pengaruh sebuah obstacle akan menghasilkan gaya tolak yang kemudian diproyeksikan ke ruang sudut sendi melalui Jacobian titik tersebut (bukan Jacobian end-effector) dan ditambahkan ke $\Delta\theta$ dari solver IK utama. Obstacle direpresentasikan sebagai lingkaran atau *axis-aligned bounding box* (AABB) dengan deteksi jarak bertanda (*signed distance*) yang juga digunakan untuk mendeteksi kolisi aktual (`collision::intersection`).
@@ -272,8 +301,6 @@ Sesuai ketentuan spesifikasi tugas:
 ---
 
 ## Kredit
-
-Dibuat untuk **Task Seleksi Lab IRK 2026 "Reach Me If You Can"**.
 
 Dependensi eksternal:
 - [`macroquad`](https://crates.io/crates/macroquad): framework rendering dan window management

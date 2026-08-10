@@ -206,6 +206,13 @@ impl App {
             self.print_jacobian();
         }
 
+        let (_, wheel_delta) = mouse_wheel();
+        if wheel_delta != 0.0 && gui_input::is_pointer_over_panel() {
+            let max_scroll = (self.panel_state.content_height - screen_height()).max(0.0);
+            self.panel_state.scroll_y = (self.panel_state.scroll_y - wheel_delta * 30.0)
+                .clamp(0.0, max_scroll);
+        }
+
         if is_mouse_button_down(MouseButton::Left) && !gui_input::is_pointer_over_panel() {
             let (mouse_x, mouse_y) = mouse_position();
             let point = Vector2::new(mouse_x, mouse_y);
