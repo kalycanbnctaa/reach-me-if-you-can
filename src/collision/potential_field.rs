@@ -30,16 +30,27 @@ pub fn compute_delta(
     let joint_count = robot.actuated_joint_count();
     let mut delta = vec![0.0_f32; joint_count];
 
-    if obstacles.is_empty() {
+    if obstacles.is_empty() || config.samples_per_segment == 0 {
         return delta;
     }
 
     let lengths: Vec<f32> = robot.segments.iter().map(|segment| segment.length).collect();
     let angles = &robot.state.joint_angles;
 
+    if !lengths.iter().all(|&l| l.is_finite() && l > 0.0) {
+        return delta;
+    }
+    if !angles.iter().all(|&a| a.is_finite()) {
+        return delta;
+    }
+
     for segment_index in 0..joint_count {
         for sample in 0..=config.samples_per_segment {
-            let fraction = sample as f32 / config.samples_per_segment as f32;
+            let fraction = (sample as f32 / config.samples_per_segment as f32).clamp(0.0, 1.0);
+
+            if !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
+                continue;
+            }
 
             let point = jacobian::point_on_segment(
                 robot.base_position,
@@ -48,6 +59,10 @@ pub fn compute_delta(
                 segment_index,
                 fraction,
             );
+
+            if !point.is_finite() {
+                continue;
+            }
 
             for obstacle in obstacles {
                 let (signed_distance, direction) =
@@ -58,16 +73,18 @@ pub fn compute_delta(
                 }
 
                 let clamped_distance = signed_distance.max(1.0e-3);
-
                 let magnitude = config.repulsive_gain
                     * (1.0 / clamped_distance - 1.0 / config.influence_radius)
                     * (1.0 / (clamped_distance * clamped_distance));
 
-                if magnitude <= 0.0 {
+                if !magnitude.is_finite() || magnitude <= 0.0 {
                     continue;
                 }
 
                 let force = direction * magnitude;
+                if !force.is_finite() {
+                    continue;
+                }
 
                 let point_jacobian = jacobian::point_jacobian(
                     robot.base_position,
@@ -78,11 +95,22 @@ pub fn compute_delta(
                     joint_count,
                 );
 
+                if !point_jacobian.is_finite() {
+                    continue;
+                }
+
                 for joint_index in 0..joint_count {
                     let jx = point_jacobian.partial_x(joint_index).unwrap_or(0.0);
                     let jy = point_jacobian.partial_y(joint_index).unwrap_or(0.0);
 
+                    if !jx.is_finite() || !jy.is_finite() {
+                        continue;
+                    }
+
                     delta[joint_index] += jx * force.x + jy * force.y;
+                    if !delta[joint_index].is_finite() {
+                        delta[joint_index] = 0.0;
+                    }
                 }
             }
         }
@@ -98,7 +126,7 @@ pub fn compute_force_vectors(
 ) -> Vec<(Vector2, Vector2)> {
     let mut vectors = Vec::new();
 
-    if obstacles.is_empty() {
+    if obstacles.is_empty() || config.samples_per_segment == 0 {
         return vectors;
     }
 
@@ -106,9 +134,19 @@ pub fn compute_force_vectors(
     let lengths: Vec<f32> = robot.segments.iter().map(|segment| segment.length).collect();
     let angles = &robot.state.joint_angles;
 
+    if !lengths.iter().all(|&l| l.is_finite() && l > 0.0) {
+        return vectors;
+    }
+    if !angles.iter().all(|&a| a.is_finite()) {
+        return vectors;
+    }
+
     for segment_index in 0..joint_count {
         for sample in 0..=config.samples_per_segment {
-            let fraction = sample as f32 / config.samples_per_segment as f32;
+            let fraction = (sample as f32 / config.samples_per_segment as f32).clamp(0.0, 1.0);
+            if !fraction.is_finite() || !(0.0..=1.0).contains(&fraction) {
+                continue;
+            }
 
             let point = jacobian::point_on_segment(
                 robot.base_position,
@@ -117,6 +155,9 @@ pub fn compute_force_vectors(
                 segment_index,
                 fraction,
             );
+            if !point.is_finite() {
+                continue;
+            }
 
             let mut total_force = Vector2::ZERO;
 
@@ -129,19 +170,23 @@ pub fn compute_force_vectors(
                 }
 
                 let clamped_distance = signed_distance.max(1.0e-3);
-
                 let magnitude = config.repulsive_gain
                     * (1.0 / clamped_distance - 1.0 / config.influence_radius)
                     * (1.0 / (clamped_distance * clamped_distance));
 
-                if magnitude <= 0.0 {
+                if !magnitude.is_finite() || magnitude <= 0.0 {
                     continue;
                 }
 
-                total_force += direction * magnitude;
+                let force = direction * magnitude;
+                if !force.is_finite() {
+                    continue;
+                }
+
+                total_force += force;
             }
 
-            if total_force.length() > 0.5 {
+            if total_force.is_finite() && total_force.length() > 0.5 {
                 vectors.push((point, total_force));
             }
         }

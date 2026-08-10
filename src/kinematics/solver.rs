@@ -103,6 +103,9 @@ pub fn step(
 
         for (delta, repulsive) in delta_theta.iter_mut().zip(repulsive_delta.iter()) {
             *delta += config.obstacle_step_size * repulsive;
+            if !delta.is_finite() {
+                *delta = 0.0;
+            }
         }
     }
 
